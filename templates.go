@@ -24,13 +24,14 @@ import (
 	ipc "github.com/james-barrow/golang-ipc"
 )
 
+const MsgTypeInternal = -1
 const MsgTypeReload = 1
 const MsgTypeReloaded = 2
 const MsgTypePing = 99
 
 type CloseFunc func()
 
-type TemplateManager interface {
+type ReloadManager interface {
 	Run() error
 	Close() error
 }
@@ -44,20 +45,20 @@ type Logger interface {
 	Errorf(format string, args ...interface{})
 }
 
-type templateManager struct {
+type reloadManager struct {
 	ipcChannel string
 	ipcClient  *ipc.Client
 	reloader   Reloader
 	logger     Logger
 }
 
-func newManager(reloader Reloader, logger Logger) (*templateManager, error) {
+func New(reloader Reloader, logger Logger) (*reloadManager, error) {
 	ipcChannel, ok := os.LookupEnv("GOMON_IPC_CHANNEL")
 	if !ok {
 		return nil, errors.New("GOMON_IPC_CHANNEL not set")
 	}
 
-	t := &templateManager{
+	t := &reloadManager{
 		ipcChannel,
 		nil,
 		reloader,
@@ -67,12 +68,12 @@ func newManager(reloader Reloader, logger Logger) (*templateManager, error) {
 	return t, nil
 }
 
-func (t *templateManager) Run() error {
+func (t *reloadManager) Run() error {
 	var err error
 
 	t.ipcClient, err = ipc.StartClient(t.ipcChannel, nil)
 	if err != nil {
-		t.logger.Errorf("Unable to start IPC client: %w", err)
+		t.LogErrorf("Unable to start IPC client: %w", err)
 		return err
 	}
 
@@ -80,26 +81,26 @@ func (t *templateManager) Run() error {
 		for {
 			msg, err := t.ipcClient.Read()
 			if err != nil {
-				t.logger.Errorf("Unable to receive message: %v", err)
+				t.LogErrorf("Unable to receive message: %v", err)
 				break
 			}
 
 			switch msg.MsgType {
 			case MsgTypeReload:
 				data := string(msg.Data)
-				t.logger.Infof("Reload notification: %s", data)
+				t.LogInfof("Reload notification: %s", data)
 				t.reloader.Reload(data)
 				err = t.ipcClient.Write(MsgTypeReloaded, msg.Data)
 				if err != nil {
-					t.logger.Errorf("Unable to send message: %v", err)
+					t.LogErrorf("Unable to send message: %v", err)
 					break
 				}
 			case MsgTypePing:
-				t.logger.Infof("Ping received")
+				t.LogInfof("Ping received")
 			case -1:
-				t.logger.Infof("Internal message received: %+v", msg)
+				t.LogInfof("Internal message received: %+v", msg)
 			default:
-				t.logger.Errorf("Unknown message: %v", msg)
+				t.LogErrorf("Unknown message: %v", msg)
 			}
 		}
 	}()
@@ -107,13 +108,27 @@ func (t *templateManager) Run() error {
 	time.Sleep(250 * time.Millisecond)
 	err = t.ipcClient.Write(MsgTypePing, nil)
 	if err != nil {
-		t.logger.Errorf("Unable to send startup message: %v", err)
+		t.LogErrorf("Unable to send startup message: %v", err)
 	}
 
 	return nil
 }
 
-func (t *templateManager) Close() error {
+func (t *reloadManager) Close() error {
 	t.ipcClient.Close()
 	return nil
+}
+
+func (t *reloadManager) LogInfof(format string, args ...interface{}) {
+	if t.logger == nil {
+		return
+	}
+	t.logger.Infof(format, args...)
+}
+
+func (t *reloadManager) LogErrorf(format string, args ...interface{}) {
+	if t.logger == nil {
+		return
+	}
+	t.logger.Errorf(format, args...)
 }

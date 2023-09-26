@@ -25,7 +25,8 @@ import (
 )
 
 type templateManagerEcho struct {
-	TemplateManager
+	ReloadManager
+	pathGlob  string
 	templates *template.Template
 }
 
@@ -34,19 +35,20 @@ func (t *templateManagerEcho) Render(w io.Writer, name string, data interface{},
 }
 
 func (t *templateManagerEcho) Reload(data string) {
-	t.templates = template.Must(template.ParseGlob(data))
+	t.templates = template.Must(template.ParseGlob(t.pathGlob))
 }
 
-func New(pathGlob string, logger Logger) (*templateManagerEcho, error) {
+func NewEcho(pathGlob string, logger Logger) (*templateManagerEcho, error) {
 	t := &templateManagerEcho{
+		pathGlob:  pathGlob,
 		templates: template.Must(template.ParseGlob(pathGlob)),
 	}
 
-	templateManager, err := newManager(t, logger)
+	templateManager, err := New(t, logger)
 	if err != nil {
 		return nil, fmt.Errorf("initiating template manager: %w", err)
 	}
-	t.TemplateManager = templateManager
+	t.ReloadManager = templateManager
 
 	return t, nil
 }
