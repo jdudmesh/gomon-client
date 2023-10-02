@@ -1,4 +1,4 @@
-module github.com/jdudmesh/gomon/pkg/client
+module github.com/jdudmesh/gomon-client
 
 go 1.20
 
