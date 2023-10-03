@@ -17,7 +17,6 @@ package client
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import (
-	"errors"
 	"os"
 	"time"
 
@@ -57,7 +56,8 @@ type reloadManager struct {
 func New(reloader Reloader, logger Logger) (*reloadManager, error) {
 	ipcChannel, ok := os.LookupEnv("GOMON_IPC_CHANNEL")
 	if !ok {
-		return nil, errors.New("GOMON_IPC_CHANNEL not set")
+		logger.Infof("GOMON_IPC_CHANNEL not set, not starting reload manager")
+		return nil, nil
 	}
 
 	t := &reloadManager{

@@ -40,9 +40,10 @@ func (t *templateManagerEcho) Reload(data string) {
 
 func NewEcho(pathGlob string, logger Logger) (*templateManagerEcho, error) {
 	t := &templateManagerEcho{
-		pathGlob:  pathGlob,
-		templates: template.Must(template.ParseGlob(pathGlob)),
+		pathGlob: pathGlob,
 	}
+
+	t.Reload("")
 
 	templateManager, err := New(t, logger)
 	if err != nil {
