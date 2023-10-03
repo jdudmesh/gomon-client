@@ -71,13 +71,16 @@ func New(reloader Reloader, logger Logger) (*reloadManager, error) {
 }
 
 func (t *reloadManager) Run() error {
-	var err error
+	if t == nil {
+		return nil
+	}
 
-	t.ipcClient, err = ipc.StartClient(t.ipcChannel, nil)
+	ipcClient, err := ipc.StartClient(t.ipcChannel, nil)
 	if err != nil {
 		t.LogErrorf("Unable to start IPC client: %w", err)
 		return err
 	}
+	t.ipcClient = ipcClient
 
 	go func() {
 		for {
@@ -121,7 +124,9 @@ func (t *reloadManager) Run() error {
 }
 
 func (t *reloadManager) Close() error {
-	t.ipcClient.Close()
+	if t.ipcClient != nil {
+		t.ipcClient.Close()
+	}
 	return nil
 }
 
