@@ -27,7 +27,9 @@ import (
 const MsgTypeInternal = -1
 const MsgTypeReload = 1
 const MsgTypeReloaded = 2
-const MsgTypePing = 99
+const MsgTypeStartup = 3
+const MsgTypePing = 98
+const MsgTypePong = 99
 
 type CloseFunc func()
 
@@ -97,6 +99,10 @@ func (t *reloadManager) Run() error {
 				}
 			case MsgTypePing:
 				t.LogInfof("Ping received")
+				err = t.ipcClient.Write(MsgTypePong, nil)
+				if err != nil {
+					t.LogErrorf("Unable to send pong message: %v", err)
+				}
 			case -1:
 				t.LogInfof("Internal message received: %+v", msg)
 			default:
@@ -106,7 +112,7 @@ func (t *reloadManager) Run() error {
 	}()
 
 	time.Sleep(250 * time.Millisecond)
-	err = t.ipcClient.Write(MsgTypePing, nil)
+	err = t.ipcClient.Write(MsgTypeStartup, nil)
 	if err != nil {
 		t.LogErrorf("Unable to send startup message: %v", err)
 	}
