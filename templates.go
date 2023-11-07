@@ -27,6 +27,7 @@ const MsgTypeInternal = -1
 const MsgTypeReload = 1
 const MsgTypeReloaded = 2
 const MsgTypeStartup = 3
+const MsgTypeShutdown = 4
 const MsgTypePing = 98
 const MsgTypePong = 99
 
