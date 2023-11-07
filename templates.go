@@ -125,6 +125,9 @@ func (t *reloadManager) Run() error {
 }
 
 func (t *reloadManager) Close() error {
+	if t == nil {
+		return nil
+	}
 	if t.ipcClient != nil {
 		t.ipcClient.Close()
 	}
