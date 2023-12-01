@@ -3,6 +3,7 @@ module github.com/jdudmesh/gomon-client
 go 1.20
 
 require (
+	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/james-barrow/golang-ipc v1.2.4
 	github.com/labstack/echo/v4 v4.11.1
 )

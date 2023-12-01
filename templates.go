@@ -20,6 +20,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	ipc "github.com/james-barrow/golang-ipc"
 )
 
@@ -87,11 +88,18 @@ func (t *reloadManager) Run() error {
 		for {
 			msg, err := t.ipcClient.Read()
 			if err != nil {
-				t.LogErrorf("Unable to receive message: %v", err)
-				break
+				if t.ipcClient.StatusCode() == ipc.Connected {
+					t.LogErrorf("Unable to receive message: %v (%s)", err, t.ipcClient.Status())
+				}
+				return
 			}
 
 			switch msg.MsgType {
+			case MsgTypeShutdown:
+				t.LogInfof("Shutdown notification received")
+				t.Close()
+				return
+
 			case MsgTypeReload:
 				data := string(msg.Data)
 				t.LogInfof("Reload notification: %s", data)
@@ -99,14 +107,15 @@ func (t *reloadManager) Run() error {
 				err = t.ipcClient.Write(MsgTypeReloaded, msg.Data)
 				if err != nil {
 					t.LogErrorf("Unable to send message: %v", err)
-					break
 				}
+
 			case MsgTypePing:
 				t.LogInfof("Ping received")
 				err = t.ipcClient.Write(MsgTypePong, nil)
 				if err != nil {
 					t.LogErrorf("Unable to send pong message: %v", err)
 				}
+
 			case -1:
 				t.LogInfof("Internal message received: %+v", msg)
 			default:
@@ -115,8 +124,12 @@ func (t *reloadManager) Run() error {
 		}
 	}()
 
-	time.Sleep(250 * time.Millisecond)
-	err = t.ipcClient.Write(MsgTypeStartup, nil)
+	bo := backoff.NewExponentialBackOff()
+	bo.InitialInterval = 100 * time.Millisecond
+	bo.MaxElapsedTime = 10 * time.Second
+	err = backoff.Retry(func() error {
+		return t.ipcClient.Write(MsgTypeStartup, nil)
+	}, backoff.WithMaxRetries(bo, 10))
 	if err != nil {
 		t.LogErrorf("Unable to send startup message: %v", err)
 	}
