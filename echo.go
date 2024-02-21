@@ -25,31 +25,41 @@ import (
 )
 
 type templateManagerEcho struct {
-	ReloadManager
-	pathGlob  string
-	templates *template.Template
+	reloadManager ReloadManager
+	pathGlob      string
+	templates     *template.Template
+}
+
+func NewEcho(pathGlob string) (*templateManagerEcho, error) {
+	t := &templateManagerEcho{
+		pathGlob: pathGlob,
+	}
+
+	t.Reload("***startup***")
+
+	reloadManager, err := New(t.Reload)
+	if err != nil {
+		return nil, fmt.Errorf("initiating template manager: %w", err)
+	}
+	t.reloadManager = reloadManager
+
+	return t, nil
 }
 
 func (t *templateManagerEcho) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
 	return t.templates.ExecuteTemplate(w, name, data)
 }
 
-func (t *templateManagerEcho) Reload(data string) {
-	t.templates = template.Must(template.ParseGlob(t.pathGlob))
+func (t *templateManagerEcho) Reload(hint string) error {
+	var err error
+	t.templates, err = template.ParseGlob(t.pathGlob)
+	return err
 }
 
-func NewEcho(pathGlob string, logger Logger) (*templateManagerEcho, error) {
-	t := &templateManagerEcho{
-		pathGlob: pathGlob,
-	}
+func (t *templateManagerEcho) Close() {
+	t.reloadManager.Close()
+}
 
-	t.Reload("")
-
-	templateManager, err := New(t, logger)
-	if err != nil {
-		return nil, fmt.Errorf("initiating template manager: %w", err)
-	}
-	t.ReloadManager = templateManager
-
-	return t, nil
+func (t *templateManagerEcho) ListenAndServe() error {
+	return t.reloadManager.ListenAndServe()
 }

@@ -17,146 +17,101 @@ package client
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
+	"strconv"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
-	ipc "github.com/james-barrow/golang-ipc"
+	ipc "github.com/jdudmesh/gomon-ipc"
 )
 
-const MsgTypeInternal = -1
-const MsgTypeReload = 1
-const MsgTypeReloaded = 2
-const MsgTypeStartup = 3
-const MsgTypeShutdown = 4
-const MsgTypePing = 98
-const MsgTypePong = 99
+const SoftRestartMessage = "__soft_reload"
 
 type CloseFunc func()
 
 type ReloadManager interface {
-	Run() error
-	Close() error
+	ListenAndServe() error
+	Close()
 }
 
-type Reloader interface {
-	Reload(string)
-}
-
-type Logger interface {
-	Infof(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
-}
+type ReloaderFunc func(hint string) error
 
 type reloadManager struct {
-	ipcChannel string
-	ipcClient  *ipc.Client
-	reloader   Reloader
-	logger     Logger
+	ipcClient  ipc.Connection
+	reloaderFn ReloaderFunc
 }
 
-func New(reloader Reloader, logger Logger) (*reloadManager, error) {
-	ipcChannel, ok := os.LookupEnv("GOMON_IPC_CHANNEL")
-	if !ok {
-		logger.Infof("GOMON_IPC_CHANNEL not set, not starting reload manager")
-		return nil, nil
+func New(reloaderFn ReloaderFunc) (ReloadManager, error) {
+	var err error
+
+	serverHost := ipc.DefaultServerHost
+	if h, ok := os.LookupEnv("GOMON_IPC_HOST"); ok {
+		serverHost = h
+	}
+
+	serverPort := ipc.DefaultServerPort
+	if p, ok := os.LookupEnv("GOMON_IPC_POST"); ok {
+		serverPort, err = strconv.Atoi(p)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse GOMON_IPC_PORT: %w", err)
+		}
 	}
 
 	t := &reloadManager{
-		ipcChannel,
-		nil,
-		reloader,
-		logger,
+		reloaderFn: reloaderFn,
 	}
+
+	ipcClient, err := ipc.NewConnection(ipc.ClientConnection,
+		ipc.WithServerHost(serverHost),
+		ipc.WithServerPort(serverPort),
+		ipc.WithReadHandler(t.handleInboundMessage))
+	if err != nil {
+		return nil, fmt.Errorf("unable to start IPC client: %w", err)
+	}
+
+	t.ipcClient = ipcClient
 
 	return t, nil
 }
 
-func (t *reloadManager) Run() error {
+func (t *reloadManager) ListenAndServe() error {
 	if t == nil {
+		return errors.New("reload manager not initialized")
+	}
+
+	ctx := context.Background()
+
+	err := t.ipcClient.ListenAndServe(ctx, func(state ipc.ConnectionState) error {
+		//fmt.Println("server state changed:", state)
 		return nil
-	}
+	})
 
-	ipcClient, err := ipc.StartClient(t.ipcChannel, nil)
 	if err != nil {
-		t.LogErrorf("Unable to start IPC client: %w", err)
-		return err
-	}
-	t.ipcClient = ipcClient
-
-	go func() {
-		for {
-			msg, err := t.ipcClient.Read()
-			if err != nil {
-				if t.ipcClient.StatusCode() == ipc.Connected {
-					t.LogErrorf("Unable to receive message: %v (%s)", err, t.ipcClient.Status())
-				}
-				return
-			}
-
-			switch msg.MsgType {
-			case MsgTypeShutdown:
-				t.LogInfof("Shutdown notification received")
-				t.Close()
-				return
-
-			case MsgTypeReload:
-				data := string(msg.Data)
-				t.LogInfof("Reload notification: %s", data)
-				t.reloader.Reload(data)
-				err = t.ipcClient.Write(MsgTypeReloaded, msg.Data)
-				if err != nil {
-					t.LogErrorf("Unable to send message: %v", err)
-				}
-
-			case MsgTypePing:
-				t.LogInfof("Ping received")
-				err = t.ipcClient.Write(MsgTypePong, nil)
-				if err != nil {
-					t.LogErrorf("Unable to send pong message: %v", err)
-				}
-
-			case -1:
-				t.LogInfof("Internal message received: %+v", msg)
-			default:
-				t.LogErrorf("Unknown message: %v", msg)
-			}
-		}
-	}()
-
-	bo := backoff.NewExponentialBackOff()
-	bo.InitialInterval = 100 * time.Millisecond
-	bo.MaxElapsedTime = 10 * time.Second
-	err = backoff.Retry(func() error {
-		return t.ipcClient.Write(MsgTypeStartup, nil)
-	}, backoff.WithMaxRetries(bo, 10))
-	if err != nil {
-		t.LogErrorf("Unable to send startup message: %v", err)
+		return fmt.Errorf("unable to start IPC client: %w", err)
 	}
 
 	return nil
 }
 
-func (t *reloadManager) Close() error {
-	if t == nil {
-		return nil
+func (t *reloadManager) handleInboundMessage(data []byte) error {
+	t.reloaderFn(string(data))
+
+	ctx, cancelFn := context.WithTimeout(context.Background(), time.Second)
+	defer cancelFn()
+
+	// send an acknowledgement message
+	err := t.ipcClient.Write(ctx, []byte(SoftRestartMessage))
+	if err != nil {
+		return fmt.Errorf("unable to send reload message: %w", err)
 	}
+
+	return nil
+}
+
+func (t *reloadManager) Close() {
 	if t.ipcClient != nil {
 		t.ipcClient.Close()
 	}
-	return nil
-}
-
-func (t *reloadManager) LogInfof(format string, args ...interface{}) {
-	if t.logger == nil {
-		return
-	}
-	t.logger.Infof(format, args...)
-}
-
-func (t *reloadManager) LogErrorf(format string, args ...interface{}) {
-	if t.logger == nil {
-		return
-	}
-	t.logger.Errorf(format, args...)
 }
