@@ -28,6 +28,7 @@ import (
 )
 
 const SoftRestartMessage = "__soft_reload"
+const HardRestartMessage = "__hard_restart"
 
 type CloseFunc func()
 
@@ -84,12 +85,27 @@ func (t *reloadManager) ListenAndServe() error {
 	ctx := context.Background()
 
 	err := t.ipcClient.ListenAndServe(ctx, func(state ipc.ConnectionState) error {
-		//fmt.Println("server state changed:", state)
+		if state == ipc.Connected {
+			return t.sendStartupMessage()
+		}
 		return nil
 	})
 
 	if err != nil {
 		return fmt.Errorf("unable to start IPC client: %w", err)
+	}
+
+	return nil
+}
+
+func (t *reloadManager) sendStartupMessage() error {
+	ctx, cancelFn := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancelFn()
+
+	// send an acknowledgement message
+	err := t.ipcClient.Write(ctx, []byte(HardRestartMessage))
+	if err != nil {
+		return fmt.Errorf("unable to send startup message: %w", err)
 	}
 
 	return nil

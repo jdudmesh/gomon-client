@@ -1,5 +1,5 @@
 # Overview
-`gomon-client` is an integration which connects your Go project with the [gomon](https://github.com/jdudmesh/gomon) hot reload tool. 
+`gomon-client` is an integration which connects your Go project with the [gomon](https://github.com/jdudmesh/gomon) hot reload tool.
 
 The `gomon` tool runs your project (`go run`) and watches for file changes. It does a hard reload (process restart) on configured file extensions e.g. `.go` or soft reload (either template reload or generic callback) on an alternative set of file extensions.
 
@@ -24,15 +24,18 @@ func main() {
 	e := echo.New()
 	e.Static("/assets", "./static")
 
-	t, err := templates.NewEcho("views/*.html", e.Logger)
+	t, err := client.NewEcho("./views/*html")
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
 	defer t.Close()
-	if err := t.Run(); err != nil {
-		panic(err)
-	}
+
+	go func() {
+		err := t.ListenAndServe()
+		if err != nil {
+			log.Error(err)
+		}
+	}()
 
 	e.Renderer = t
 
